@@ -73,7 +73,7 @@ def clear_user_auth(user):
         # 如果用户目录为空，也删除目录
         if os.path.exists(user_dir) and not os.listdir(user_dir):
             os.rmdir(user_dir)
-            click.echo(f"🗑️  已删除空的用户目录: {user_dir}")
+            #click.echo(f"🗑️  已删除空的用户目录: {user_dir}")
         
         return True
     except Exception as e:
@@ -89,7 +89,7 @@ def clear_bypy_tokens():
         
         if os.path.exists(bypy_token_file):
             shutil.rmtree(bypy_token_file)
-            click.echo("🗑️  已清除 bypy 全局授权信息")
+            #click.echo("🗑️  已清除 bypy 全局授权信息")
         else:
             click.echo("ℹ️  没有找到 bypy 全局授权信息")
     except Exception as e:
@@ -143,7 +143,9 @@ def get_pcs(user, login=False):
                 # 创建新的 ByPy 实例（bypy 会使用全局授权信息）
                 bp = ByPy()
                 # 验证授权是否仍然有效
-                result = bp.list('/')
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    result = bp.list('/')
                 if result == 0:
                     return bp
                 else:
@@ -157,3 +159,18 @@ def get_pcs(user, login=False):
         except Exception as e:
             click.echo(f"❌ 读取用户 {user} 认证信息时发生错误: {e}")
             return None 
+
+def set_default_user(user):
+    """设置默认用户"""
+    os.makedirs(BASE_DIR, exist_ok=True)
+    default_file = os.path.join(BASE_DIR, "default_user")
+    with open(default_file, "w", encoding="utf-8") as f:
+        f.write(user)
+
+def get_default_user():
+    """获取默认用户，如果没有则返回 None"""
+    default_file = os.path.join(BASE_DIR, "default_user")
+    if os.path.exists(default_file):
+        with open(default_file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return None 

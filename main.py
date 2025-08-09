@@ -3,7 +3,7 @@ import sys
 import io
 import re
 from contextlib import redirect_stdout
-from usermgr import get_pcs, ensure_user, clear_user_auth
+from usermgr import get_pcs, ensure_user, clear_user_auth, set_default_user, get_default_user
 from datetime import datetime
 from wcwidth import wcswidth
 
@@ -17,7 +17,28 @@ def cli():
     pass
 
 @cli.command()
-@click.option('--user', required=True, help='用户名，用于区分不同用户的认证信息')
+@click.option('--user', required=True, help='要设置为默认的用户名')
+def set_default_user_cmd(user):
+    """设置默认用户
+    
+    设置后，所有命令如果不指定 --user，将自动使用该用户。
+    示例:
+        python main.py set-default-user --user alice
+    """
+    set_default_user(user)
+    click.echo(f"✅ 已将 {user} 设置为默认用户")
+
+def get_user_param(user):
+    if user:
+        return user
+    default_user = get_default_user()
+    if default_user:
+        return default_user
+    click.echo("❌ 未指定用户且未设置默认用户，请使用 --user 参数或先设置默认用户 (set-default-user)")
+    sys.exit(1)
+
+@cli.command()
+@click.option('--user', required=False, help='用户名，用于区分不同用户的认证信息')
 def login(user):
     """登录百度网盘账号
     
@@ -28,6 +49,7 @@ def login(user):
         python main.py login --user alice
     """
     try:
+        user = get_user_param(user)
         ensure_user(user)
         bp = get_pcs(user, login=True)
         if bp is None:
@@ -38,7 +60,7 @@ def login(user):
         click.echo(f"❌ 登录失败: {e}")
 
 @cli.command()
-@click.option('--user', required=True, help='用户名，用于清除对应的认证信息')
+@click.option('--user', required=False, help='用户名，用于清除对应的认证信息')
 def logout(user):
     """清除用户的百度网盘认证信息
     
@@ -49,6 +71,7 @@ def logout(user):
         python main.py logout --user alice
     """
     try:
+        user = get_user_param(user)
         success = clear_user_auth(user)
         if success:
             click.echo(f"✅ 用户 {user} 已成功登出")
@@ -58,7 +81,7 @@ def logout(user):
         click.echo(f"❌ 登出失败: {e}")
 
 @cli.command()
-@click.option('--user', required=True, help='用户名，用于获取对应的认证信息')
+@click.option('--user', required=False, help='用户名，用于获取对应的认证信息')
 @click.argument('localfile', type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True))
 @click.argument('remotefile', type=click.Path())
 def upload(user, localfile, remotefile):
@@ -74,6 +97,7 @@ def upload(user, localfile, remotefile):
         python main.py upload --user alice ./image.jpg /photos/vacation/image.jpg
     """
     try:
+        user = get_user_param(user)
         bp = get_pcs(user)
         if bp is None:
             return  # 错误信息已在 get_pcs 中显示
@@ -87,7 +111,7 @@ def upload(user, localfile, remotefile):
         click.echo(f"❌ 上传时发生错误: {e}")
 
 @cli.command()
-@click.option('--user', required=True, help='用户名，用于获取对应的认证信息')
+@click.option('--user', required=False, help='用户名，用于获取对应的认证信息')
 @click.argument('remotefile', type=click.Path())
 @click.argument('localfile', type=click.Path())
 def download(user, remotefile, localfile):
@@ -103,6 +127,7 @@ def download(user, remotefile, localfile):
         python main.py download --user alice /photos/vacation/image.jpg ./image.jpg
     """
     try:
+        user = get_user_param(user)
         bp = get_pcs(user)
         if bp is None:
             return  # 错误信息已在 get_pcs 中显示
@@ -116,18 +141,18 @@ def download(user, remotefile, localfile):
         click.echo(f"❌ 下载时发生错误: {e}")
 
 @cli.command()
-@click.option('--user', required=True, help='用户名，用于获取对应的认证信息')
+@click.option('--user', required=False, help='用户名，用于获取对应的认证信息')
 @click.argument('remotedir', default='/', required=False, type=click.Path())
 def list(user, remotedir):
     """列出百度网盘目录内容
     
     显示指定目录下的文件和子目录列表。
-    支持中英文混排的表格对齐显示。
+    文件名完整显示，且根据最长文件名自动对齐。
     
     REMOTEDIR: 远程目录路径，默认为根目录 /
     
     输出格式:
-        - 文件名: 支持中英文，过长会自动截断
+        - 文件名: 完整显示，自动对齐
         - 类型: 文件或目录
         - 大小: 自动转换为 B/KB/MB/GB 单位
         - 修改时间: YYYY-MM-DD HH:MM:SS 格式
@@ -137,6 +162,7 @@ def list(user, remotedir):
         python main.py list --user alice /documents
         python main.py list --user alice /photos/vacation
     """
+    user = get_user_param(user)
     bp = get_pcs(user)
     if bp is None:
         return  # 错误信息已在 get_pcs 中显示
@@ -150,29 +176,18 @@ def list(user, remotedir):
             lines = output_text.strip().split('\n')
             
             if len(lines) > 1:
-                click.echo(f"\n📁 目录: {remotedir}")
-                click.echo("=" * 90)
-                # 列宽设置（按显示宽度）
-                name_width = 45
+                # 先收集所有条目，找出最长文件名宽度
+                entries = []
+                max_name_width = wcswidth('文件名')
                 type_width = 6
                 size_width = 12
                 time_width = 20
-                # 表头
-                def pad(s, width):
-                    padlen = width - wcswidth(s)
-                    return s + ' ' * max(0, padlen)
-                click.echo(f"{pad('文件名', name_width)} {pad('类型', type_width)} {pad('大小', size_width)} {pad('修改时间', time_width)}")
-                click.echo("-" * 90)
-                
                 for line in lines[1:]:
                     if line.strip():
                         parts = line.strip().split()
-                        
                         if len(parts) >= 5:
                             file_type = parts[0]
-                            
-                            if file_type == 'D':  # 目录
-                                # 格式: D 目录名 0 日期, 时间
+                            if file_type == 'D':
                                 if len(parts) >= 5:
                                     name = parts[1]
                                     size_part = parts[2]
@@ -180,21 +195,15 @@ def list(user, remotedir):
                                     time_part = parts[4]
                                 else:
                                     continue
-                            else:  # 文件
-                                # 格式: F 文件名 大小 日期, 时间 hash
+                            else:
                                 if len(parts) >= 6:
                                     name = parts[1]
                                     size_part = parts[2]
                                     date_part = parts[3].replace(',', '')
                                     time_part = parts[4]
-                                    # hash = parts[5]  # 不需要显示
                                 else:
                                     continue
-                            
-                            # 类型
                             type_str = "目录" if file_type == 'D' else "文件"
-                            
-                            # 文件大小格式化
                             try:
                                 size_int = int(size_part)
                                 if size_int >= 1024**3:
@@ -207,25 +216,28 @@ def list(user, remotedir):
                                     size_str = f"{size_int} B"
                             except:
                                 size_str = "0 B"
-                            
-                            # 时间格式化
                             try:
                                 dt_str = f"{date_part} {time_part}"
                                 dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
                                 date_time = dt.strftime("%Y-%m-%d %H:%M:%S")
                             except:
                                 date_time = f"{date_part} {time_part}"
-                            
-                            # 文件名截断（按宽度）
-                            max_name = name
-                            while wcswidth(max_name) > name_width:
-                                max_name = max_name[:-1]
-                            if max_name != name:
-                                max_name = max_name[:-3] + '...'
-                            
-                            click.echo(f"{pad(max_name, name_width)} {pad(type_str, type_width)} {pad(size_str, size_width)} {pad(date_time, time_width)}")
-                
-                click.echo("=" * 90)
+                            entries.append((name, type_str, size_str, date_time))
+                            name_width = wcswidth(name)
+                            if name_width > max_name_width:
+                                max_name_width = name_width
+                # 输出表头
+                click.echo(f"\n📁 目录: {remotedir}")
+                total_width = max_name_width + 1 + type_width + 1 + size_width + 1 + time_width
+                click.echo("=" * total_width)
+                def pad(s, width):
+                    padlen = width - wcswidth(s)
+                    return s + ' ' * max(0, padlen)
+                click.echo(f"{pad('文件名', max_name_width)} {pad('类型', type_width)} {pad('大小', size_width)} {pad('修改时间', time_width)}")
+                click.echo("-" * total_width)
+                for name, type_str, size_str, date_time in entries:
+                    click.echo(f"{pad(name, max_name_width)} {pad(type_str, type_width)} {pad(size_str, size_width)} {pad(date_time, time_width)}")
+                click.echo("=" * total_width)
             else:
                 click.echo(f"📁 目录 {remotedir} 为空")
         else:
