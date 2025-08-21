@@ -3,7 +3,7 @@ import sys
 import io
 import re
 from contextlib import redirect_stdout
-from usermgr import get_pcs, ensure_user, clear_user_auth, set_default_user, get_default_user
+from .usermgr import get_pcs, ensure_user, clear_user_auth, set_default_user, get_default_user
 from datetime import datetime
 from wcwidth import wcswidth
 
@@ -12,19 +12,15 @@ def cli():
     """百度网盘命令行工具 - 基于 bypy 实现
     
     支持文件上传、下载、目录列表等功能，支持多用户管理。
+
     首次使用需要浏览器授权登录百度网盘账号。
     """
     pass
 
 @cli.command()
 @click.option('--user', required=True, help='要设置为默认的用户名')
-def set_default_user_cmd(user):
-    """设置默认用户
-    
-    设置后，所有命令如果不指定 --user，将自动使用该用户。
-    示例:
-        python main.py set-default-user --user alice
-    """
+def set_default_user(user):
+    """设置默认用户"""
     set_default_user(user)
     click.echo(f"✅ 已将 {user} 设置为默认用户")
 
@@ -40,14 +36,7 @@ def get_user_param(user):
 @cli.command()
 @click.option('--user', required=False, help='用户名，用于区分不同用户的认证信息')
 def login(user):
-    """登录百度网盘账号
-    
-    首次使用时会自动打开浏览器进行百度网盘授权。
-    认证信息会加密存储在 ~/.baidudisk-cli/ 目录下。
-    
-    示例:
-        python main.py login --user alice
-    """
+    """登录百度网盘"""
     try:
         user = get_user_param(user)
         ensure_user(user)
@@ -62,14 +51,7 @@ def login(user):
 @cli.command()
 @click.option('--user', required=False, help='用户名，用于清除对应的认证信息')
 def logout(user):
-    """清除用户的百度网盘认证信息
-    
-    删除指定用户的认证信息，包括加密的 token 文件。
-    如果用户目录为空，也会一并删除。
-    
-    示例:
-        python main.py logout --user alice
-    """
+    """退出登录"""
     try:
         user = get_user_param(user)
         success = clear_user_auth(user)
@@ -85,16 +67,19 @@ def logout(user):
 @click.argument('localfile', type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True))
 @click.argument('remotefile', type=click.Path())
 def upload(user, localfile, remotefile):
-    """上传文件到百度网盘
+    """上传文件到百度网盘。
     
     将本地文件上传到百度网盘的指定路径。
     
     LOCALFILE: 本地文件路径，必须是存在的文件
-    REMOTEFILE: 远程文件路径，如 /documents/file.pdf
+
+    REMOTEFILE: 远程文件路径
     
     示例:
-        python main.py upload --user alice ./report.pdf /documents/report.pdf
-        python main.py upload --user alice ./image.jpg /photos/vacation/image.jpg
+
+        baidu-cli upload --user alice ./report.pdf /documents/report.pdf
+
+        baidu-cli upload --user alice ./image.jpg /photos/vacation/image.jpg
     """
     try:
         user = get_user_param(user)
@@ -115,16 +100,19 @@ def upload(user, localfile, remotefile):
 @click.argument('remotefile', type=click.Path())
 @click.argument('localfile', type=click.Path())
 def download(user, remotefile, localfile):
-    """从百度网盘下载文件
+    """从百度网盘下载文件。
     
     将百度网盘中的文件下载到本地指定路径。
     
     REMOTEFILE: 远程文件路径，如 /documents/file.pdf
+
     LOCALFILE: 本地文件路径，下载后的保存位置
     
     示例:
-        python main.py download --user alice /documents/report.pdf ./downloads/report.pdf
-        python main.py download --user alice /photos/vacation/image.jpg ./image.jpg
+
+        baidu-cli download --user alice /documents/report.pdf ./downloads/report.pdf
+    
+        baidu-cli download --user alice /photos/vacation/image.jpg ./image.jpg
     """
     try:
         user = get_user_param(user)
@@ -144,23 +132,19 @@ def download(user, remotefile, localfile):
 @click.option('--user', required=False, help='用户名，用于获取对应的认证信息')
 @click.argument('remotedir', default='/', required=False, type=click.Path())
 def list(user, remotedir):
-    """列出百度网盘目录内容
+    """列出百度网盘目录内容。
     
     显示指定目录下的文件和子目录列表。
-    文件名完整显示，且根据最长文件名自动对齐。
     
-    REMOTEDIR: 远程目录路径，默认为根目录 /
-    
-    输出格式:
-        - 文件名: 完整显示，自动对齐
-        - 类型: 文件或目录
-        - 大小: 自动转换为 B/KB/MB/GB 单位
-        - 修改时间: YYYY-MM-DD HH:MM:SS 格式
+    REMOTEDIR: 远程目录路径，默认为根目录
     
     示例:
-        python main.py list --user alice
-        python main.py list --user alice /documents
-        python main.py list --user alice /photos/vacation
+
+        baidu-cli list --user alice
+
+        baidu-cli list --user alice /documents
+
+        baidu-cli list --user alice /photos/vacation
     """
     user = get_user_param(user)
     bp = get_pcs(user)
